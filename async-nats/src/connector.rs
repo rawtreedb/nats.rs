@@ -135,7 +135,10 @@ impl Server {
     }
 }
 
+pub(crate) type ServerAddressFilter = Arc<dyn Fn(&ServerAddr, SocketAddr) -> bool + Send + Sync>;
+
 pub(crate) struct ConnectorOptions {
+    pub(crate) server_address_filter: Option<ServerAddressFilter>,
     pub(crate) tls_required: bool,
     pub(crate) certificates: Vec<PathBuf>,
     pub(crate) client_cert: Option<PathBuf>,
@@ -401,7 +404,28 @@ impl Connector {
         let socket_addrs = server_addr
             .socket_addrs()
             .await
-            .map_err(|err| ConnectError::with_source(crate::ConnectErrorKind::Dns, err))?;
+            .map_err(|err| ConnectError::with_source(crate::ConnectErrorKind::Dns, err))?
+            .collect::<Vec<_>>();
+
+        // Check the complete resolution before opening any socket. Keep the original
+        // ServerAddr for TLS SNI/certificate verification and repeat on reconnect.
+        if let Some(filter) = &self.options.server_address_filter {
+            // The WebSocket connector resolves independently, so it cannot safely
+            // honor a policy applied to this resolution.
+            if server_addr.is_websocket()
+                || socket_addrs
+                    .iter()
+                    .any(|address| !filter(server_addr, *address))
+            {
+                return Err(ConnectError::with_source(
+                    crate::ConnectErrorKind::Io,
+                    io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "server address rejected by policy",
+                    ),
+                ));
+            }
+        }
 
         let mut last_err = None;
         for socket_addr in socket_addrs {

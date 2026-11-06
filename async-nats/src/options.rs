@@ -44,6 +44,7 @@ use tokio_rustls::rustls;
 /// ```
 #[derive(Clone)]
 pub struct ConnectOptions {
+    pub(crate) server_address_filter: Option<connector::ServerAddressFilter>,
     pub(crate) name: Option<String>,
     pub(crate) no_echo: bool,
     pub(crate) max_reconnects: Option<usize>,
@@ -98,6 +99,7 @@ impl fmt::Debug for ConnectOptions {
 impl Default for ConnectOptions {
     fn default() -> ConnectOptions {
         ConnectOptions {
+            server_address_filter: None,
             name: None,
             no_echo: false,
             max_reconnects: None,
@@ -131,6 +133,19 @@ impl Default for ConnectOptions {
 }
 
 impl ConnectOptions {
+    /// Checks every resolved socket before connecting, including reconnects.
+    /// A rejected address rejects that server's complete DNS answer. Other
+    /// configured servers are still attempted. The original hostname remains
+    /// the TLS SNI and verification name. WebSocket servers are rejected when
+    /// this filter is installed because they resolve independently.
+    pub fn server_address_filter<F>(mut self, filter: F) -> Self
+    where
+        F: Fn(&crate::ServerAddr, SocketAddr) -> bool + Send + Sync + 'static,
+    {
+        self.server_address_filter = Some(Arc::new(filter));
+        self
+    }
+
     /// Enables customization of NATS connection.
     ///
     /// # Examples
