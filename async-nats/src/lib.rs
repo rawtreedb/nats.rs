@@ -1043,6 +1043,7 @@ pub async fn connect_with_options<A: ToServerAddrs>(
     let mut connector = Connector::new(
         addrs,
         ConnectorOptions {
+            server_address_filter: options.server_address_filter,
             tls_required: options.tls_required,
             certificates: options.certificates,
             client_key: options.client_key,
